@@ -1,0 +1,11 @@
+
+BEGIN_PROLOG
+
+my_solarnu_ana:
+
+{
+	module_type: "SolarNuAna"
+	ClusterModuleLabel: "linecluster"
+	MinSize:	5
+}
+END_PROLOG
