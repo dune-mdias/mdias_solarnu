@@ -16,11 +16,20 @@
 #include "canvas/Utilities/InputTag.h"
 #include "fhiclcpp/ParameterSet.h"
 #include "messagefacility/MessageLogger/MessageLogger.h"
+#include "art_root_io/TFileDirectory.h"
+#include "art_root_io/TFileService.h"
+#include "lardataobj/RecoBase/Cluster.h"
+#include "lardataobj/RecoBase/Hit.h"
+#include "TTree.h"
+#include "lardata/DetectorInfoServices/DetectorClocksService.h" 
+#include "larsim/MCCheater/BackTrackerService.h" 
 
+// // DUNETPC specific includes
+ #include "nusimdata/SimulationBase/MCTruth.h"
+//
 
 //class SolarNuAna;
-
-namespace test{ 
+enum PType{ kUnknown, kMarl, kAPA, kCPA, kAr39, kAr42, kNeut, kKryp, kPlon, kRdon };
 class SolarNuAna : public art::EDAnalyzer {
 public:
   explicit SolarNuAna(fhicl::ParameterSet const & p);
@@ -36,11 +45,41 @@ public:
   // Required functions.
   void analyze(art::Event const & e) override;
 
+//Selected optional functions
+ void beginJob() override;
+ void endJob() override;
 
 private:
-
+ void ResetVariables();
+ PType WhichParType( int TrID );
+ bool  InMyMap     ( int TrID, std::map< int, simb::MCParticle> ParMap );
   // Declare member data here.
+  TTree* fHitTree;
+  // General event info.
+    int Run;
+    int SubRun;
+    int Event;
+ // The reconstructed hits
+   int   NTotHits;
+  // --- Our fcl parameter labels for the modules that made the data products
+  std::string fHitLabel;
+  std::string fGEANTLabel;
+  std::string fMARLLabel; std::map< int, simb::MCParticle > MarlParts;
+  std::string fAPALabel;  std::map< int, simb::MCParticle > APAParts;
+  std::string fCPALabel;  std::map< int, simb::MCParticle > CPAParts;
+  std::string fAr39Label; std::map< int, simb::MCParticle > Ar39Parts;
+  std::string fAr42Label; std::map< int, simb::MCParticle > Ar42Parts;
+  std::string fNeutLabel; std::map< int, simb::MCParticle > NeutParts;
+  std::string fKrypLabel; std::map< int, simb::MCParticle > KrypParts;
+  std::string fPlonLabel; std::map< int, simb::MCParticle > PlonParts;
+  std::string fRdonLabel; std::map< int, simb::MCParticle > RdonParts;
+  
 
+  float hitPur;
+// ******* fcl parameters *******
+
+// --- Declare our services
+     art::ServiceHandle<cheat::BackTrackerService> bt_serv;
 };
 
 
@@ -48,12 +87,114 @@ SolarNuAna::SolarNuAna(fhicl::ParameterSet const & p)
   :
   EDAnalyzer(p)  // ,
  // More initializers here.
-{}
+{
+ fHitLabel      = p.get<std::string> ("HitLabel");
+}
 
-void SolarNuAna::analyze(art::Event const & e)
+
+void SolarNuAna::ResetVariables()
+{
+  // General event info.
+    Run = SubRun = Event = -1;
+// Reconstructed hits
+   NTotHits  = 0;
+}
+void SolarNuAna::beginJob()
+{
+art::ServiceHandle<art::TFileService> tfs;
+  fHitTree = tfs->make<TTree>("HitTree","DAQ simulation analysis tree");
+  fHitTree->Branch("Event", &Event);
+  fHitTree->Branch("SubRun", &SubRun);
+  fHitTree->Branch("Run", &Run);
+  fHitTree->Branch("hitPur", &hitPur); 
+}//ResetVariables
+
+void SolarNuAna::analyze(art::Event const & evt)
 {
   // Implementation of required member function here.
-  std::cout<<"My module on event #"<< e.id().event()<<std::endl;
+    // --- We want to reset all of our TTree variables...
+    ResetVariables();
+
+     // --- Set all of my general event information...
+       Run    = evt.run();
+       SubRun = evt.subRun();
+       Event  = evt.event();
+  // --- Lift out the reco hits:
+   auto reco_hits = evt.getValidHandle<std::vector<recob::Hit> >(fHitLabel);
+ // --- Loop over the reconstructed hits to determine the "size" of each hit 
+ NTotHits = reco_hits->size();
+for(int hit = 0; hit < NTotHits; ++hit) {
+    // --- Let access this particular hit.
+     recob::Hit const& ThisHit = reco_hits->at(hit);
+// --- Lets figure out which particle contributed the most charge to this hit...
+   auto const clockData = art::ServiceHandle<detinfo::DetectorClocksService const>()->DataFor(evt);   // NOVO
+   int MainTrID    = -1;
+   double TopEFrac = -DBL_MAX;
+   std::vector< sim::TrackIDE > ThisHitIDE = bt_serv->HitToTrackIDEs(clockData,ThisHit);             // Erro
+   for (size_t ideL=0; ideL < ThisHitIDE.size(); ++ideL) {
+       if ( ThisHitIDE[ideL].energyFrac > TopEFrac ) {
+       	TopEFrac = ThisHitIDE[ideL].energyFrac;
+	MainTrID = ThisHitIDE[ideL].trackID;
+        }
+         }
+    // --- Lets figure out how that particle was generated...
+   PType ThisPType = WhichParType( MainTrID );
+    hitPur = ThisPType==1 ? 1 : 0; // marley
+      if(hitPur==0) continue; 
+      fHitTree->Fill();
+}//Loop over reco_hits
 }
-}//test namespace
-DEFINE_ART_MODULE(test::SolarNuAna)
+
+//......................................................
+PType SolarNuAna::WhichParType( int TrID )
+{
+  // Check if Ar42
+  if ( InMyMap( TrID, Ar42Parts ) ) {
+  return kAr42;
+   }
+  else if ( InMyMap( TrID, Ar39Parts ) ) {
+ return kAr39;
+  // Check if MARLEY
+   } else  if ( InMyMap( TrID, MarlParts ) ) {
+  return kMarl;
+  // Check if APA
+   } else if ( InMyMap( TrID, APAParts  ) ) {
+   return kAPA;
+ // Check if CPA
+   } else if ( InMyMap( TrID, CPAParts  ) ) {
+   return kCPA;
+   // Check if Neut
+  } else if ( InMyMap( TrID, NeutParts ) ) {
+   return kNeut;
+   // Check if Kryp
+  } else if ( InMyMap( TrID, KrypParts ) ) {
+   return kKryp;
+  // Check if Plon
+  } else if ( InMyMap( TrID, PlonParts ) ) {
+  return kPlon;
+  // Check if Rdon
+  } else if ( InMyMap( TrID, RdonParts ) ) {
+  return kRdon;
+  }
+  // If get this far then who knows???
+  return kUnknown;
+  }
+
+//......................................................
+bool SolarNuAna::InMyMap( int TrID, std::map< int, simb::MCParticle> ParMap )
+{
+  std::map<int, simb::MCParticle>::iterator ParIt;
+    ParIt = ParMap.find( TrID );
+    if ( ParIt != ParMap.end() ) {
+   //std::cout << "In Map " << (ParMap.at(TrID)).second->TrackID() << "  " << (ParMap.at(TrID)).second->PdgCode() < std::endl;
+    return true;
+    } else
+    return false;
+}
+ //......................................................
+
+void SolarNuAna::endJob()
+{
+mf::LogVerbatim("SolarNuAna") << "SolarNuAna finished job";
+} 
+DEFINE_ART_MODULE(SolarNuAna)
