@@ -51,6 +51,7 @@ public:
 
 private:
  void ResetVariables();
+ void  FillMyMaps  ( std::map< int, simb::MCParticle> &MyMap, art::FindManyP<simb::MCParticle> Assn, art::ValidHandle< std::vector<simb::MCTruth> > Hand );
  PType WhichParType( int TrID );
  bool  InMyMap     ( int TrID, std::map< int, simb::MCParticle> ParMap );
   // Declare member data here.
@@ -59,10 +60,17 @@ private:
     int Run;
     int SubRun;
     int Event;
+  // Truth information about our generated neutrino event
+   float NuEnergy;
+   float EEnergy;
+   float TrueX;
+   float TrueY;
+   float TrueZ;
  // The reconstructed hits
    int   NTotHits;
   // --- Our fcl parameter labels for the modules that made the data products
   std::string fHitLabel;
+
   std::string fGEANTLabel;
   std::string fMARLLabel; std::map< int, simb::MCParticle > MarlParts;
   std::string fAPALabel;  std::map< int, simb::MCParticle > APAParts;
@@ -74,8 +82,23 @@ private:
   std::string fPlonLabel; std::map< int, simb::MCParticle > PlonParts;
   std::string fRdonLabel; std::map< int, simb::MCParticle > RdonParts;
   
+  int   TotGen_Marl;
+  int   TotGen_APA;
+  int   TotGen_CPA;
+  int   TotGen_Ar39;
+  int   TotGen_Neut;
+  int   TotGen_Kryp;
+  int   TotGen_Plon;
+  int   TotGen_Rdon;
+
 
   float hitPur;
+
+
+  
+  float nudirx;
+  float nudiry;
+  float nudirz;
 // ******* fcl parameters *******
 
 // --- Declare our services
@@ -89,15 +112,32 @@ SolarNuAna::SolarNuAna(fhicl::ParameterSet const & p)
  // More initializers here.
 {
  fHitLabel      = p.get<std::string> ("HitLabel");
+  fGEANTLabel = p.get<std::string> ("GEANT4Label");
+  fMARLLabel = p.get<std::string> ("MARLEYLabel");
+  fAPALabel  = p.get<std::string> ("APALabel");
+  fCPALabel  = p.get<std::string> ("CPALabel");
+  fAr39Label = p.get<std::string> ("Argon39Label");
+  fAr42Label = p.get<std::string> ("Argon42Label");
+  fNeutLabel = p.get<std::string> ("NeutronLabel");
+  fKrypLabel = p.get<std::string> ("KryptonLabel");
+  fPlonLabel = p.get<std::string> ("PoloniumLabel");
+  fRdonLabel = p.get<std::string> ("RadonLabel");
 }
 
 
 void SolarNuAna::ResetVariables()
 {
-  // General event info.
+ // Clear my MCParticle maps.
+ MarlParts.clear(); APAParts .clear(); CPAParts .clear(); Ar39Parts.clear();
+ NeutParts.clear(); KrypParts.clear(); PlonParts.clear(); RdonParts.clear();
+ Ar42Parts.clear();
+// General event info.
     Run = SubRun = Event = -1;
 // Reconstructed hits
    NTotHits  = 0;
+ // Set Number of GenParts to 0
+   TotGen_Marl = TotGen_APA  = TotGen_CPA  = TotGen_Ar39 = 0;
+   TotGen_Neut = TotGen_Kryp = TotGen_Plon = TotGen_Rdon = 0;
 }
 void SolarNuAna::beginJob()
 {
@@ -119,6 +159,77 @@ void SolarNuAna::analyze(art::Event const & evt)
        Run    = evt.run();
        SubRun = evt.subRun();
        Event  = evt.event();
+
+  NuEnergy = -1;
+  EEnergy = -1;
+  TrueX = -1e3;
+  TrueY = -1e3;
+  TrueZ = -1e3;
+
+
+
+  // --- Lift out the MARLEY particles.
+
+  // Needed for marley running
+  auto MarlTrue = evt.getValidHandle<std::vector<simb::MCTruth> >(fMARLLabel);
+  if (MarlTrue->size() != 0){
+    if (MarlTrue->at(0).NParticles() > 1){
+      const simb::MCParticle& part = MarlTrue->at(0).GetParticle(0);
+
+      NuEnergy = part.E();
+      const simb::MCParticle& lep = MarlTrue->at(0).GetParticle(1);
+      TrueX = lep.Vx();
+      TrueY = lep.Vy();
+      TrueZ = lep.Vz();
+      EEnergy = lep.E();
+
+      std::cout << "Parts and leps " << part.P() <<"   " << lep.P() << std::endl;
+      std::cout << "Parts and leps " << MarlTrue->at(0).NParticles() << std::endl;
+
+      nudirx = part.Px()/part.P();
+      nudiry = part.Py()/part.P();
+      nudirz = part.Pz()/part.P();
+
+      std::cout << nudirx << "  " << nudiry << "  "<< nudirz << std::endl;
+      //std::cout << edirx << "  " << ediry << "  "<< edirz << std::endl;
+
+    }
+  }
+
+
+  // --- Lift out the APA particles.
+ /* auto APATrue = evt.getValidHandle<std::vector<simb::MCTruth> >(fAPALabel);
+  art::FindManyP<simb::MCParticle> APAAssn(APATrue,evt,fGEANTLabel);
+  FillMyMaps( APAParts, APAAssn, APATrue );
+  TotGen_APA = APAParts.size();
+  std::cout << "--- The size of APAParts is " << APAParts.size() << std::endl;
+
+  // --- Lift out the CPA particles.
+  auto CPATrue = evt.getValidHandle<std::vector<simb::MCTruth> >(fCPALabel);
+  art::FindManyP<simb::MCParticle> CPAAssn(CPATrue,evt,fGEANTLabel);
+  FillMyMaps( CPAParts, CPAAssn, CPATrue );
+  TotGen_CPA = CPAParts.size();
+  std::cout << "--- The size of CPAParts is " << CPAParts.size() << std::endl;
+
+  // --- Lift out the Ar39 particles.
+  auto Ar39True = evt.getValidHandle<std::vector<simb::MCTruth> >(fAr39Label);
+  art::FindManyP<simb::MCParticle> Ar39Assn(Ar39True,evt,fGEANTLabel);
+  FillMyMaps( Ar39Parts, Ar39Assn, Ar39True );
+  TotGen_Ar39 = Ar39Parts.size();
+  std::cout << "--- The size of Ar39Parts is " << Ar39Parts.size() << std::endl;
+
+  // --- Lift out the Ar42 particles.
+  auto Ar42True = evt.getValidHandle<std::vector<simb::MCTruth> >(fAr42Label);
+  art::FindManyP<simb::MCParticle> Ar42Assn(Ar42True,evt,fGEANTLabel);
+  FillMyMaps( Ar42Parts, Ar42Assn, Ar42True );
+  //TotGen_Ar42 = Ar42Parts.size();
+  std::cout << "--- The size of Ar42Parts is " << Ar42Parts.size() << std::endl;
+*/
+
+ art::FindManyP<simb::MCParticle> MarlAssn(MarlTrue,evt,fGEANTLabel);
+  FillMyMaps( MarlParts, MarlAssn, MarlTrue );
+  TotGen_Marl = MarlParts.size();
+  std::cout << "--- The size of MarleyParts is " << MarlParts.size() << std::endl;
   // --- Lift out the reco hits:
    auto reco_hits = evt.getValidHandle<std::vector<recob::Hit> >(fHitLabel);
  // --- Loop over the reconstructed hits to determine the "size" of each hit 
@@ -139,12 +250,25 @@ for(int hit = 0; hit < NTotHits; ++hit) {
          }
     // --- Lets figure out how that particle was generated...
    PType ThisPType = WhichParType( MainTrID );
-    hitPur = ThisPType==1 ? 1 : 0; // marley
-      if(hitPur==0) continue; 
+    // --- I want to fill a vector of coll plane hits, for each of the different kinds of generator.
+ if (ThisHit.View() == 2) 
+{
+    hitPur = ThisPType== 1 ? 1 : 0; // marley
+     if(hitPur==0) continue;
       fHitTree->Fill();
+}
 }//Loop over reco_hits
 }
-
+//......................................................
+void SolarNuAna::FillMyMaps( std::map< int, simb::MCParticle> &MyMap, art::FindManyP<simb::MCParticle> Assn, art::ValidHandle< std::vector<simb::MCTruth> > Hand )
+{
+for ( size_t L1=0; L1 < Hand->size(); ++L1 ) {
+ for ( size_t L2=0; L2 < Assn.at(L1).size(); ++L2 ) {
+  const simb::MCParticle ThisPar = (*Assn.at(L1).at(L2));
+   MyMap[ThisPar.TrackId()] = ThisPar;          }
+      }
+    return;
+                          }
 //......................................................
 PType SolarNuAna::WhichParType( int TrID )
 {
