@@ -92,7 +92,7 @@ private:
   int   TotGen_Rdon;
 
 
-  float hitPur;
+  float hitPur,hitCharge;
 
 
   
@@ -147,6 +147,7 @@ art::ServiceHandle<art::TFileService> tfs;
   fHitTree->Branch("SubRun", &SubRun);
   fHitTree->Branch("Run", &Run);
   fHitTree->Branch("hitPur", &hitPur); 
+  fHitTree->Branch("hitCharge", &hitCharge);  
 }//ResetVariables
 
 void SolarNuAna::analyze(art::Event const & evt)
@@ -198,7 +199,7 @@ void SolarNuAna::analyze(art::Event const & evt)
 
 
   // --- Lift out the APA particles.
- /* auto APATrue = evt.getValidHandle<std::vector<simb::MCTruth> >(fAPALabel);
+  auto APATrue = evt.getValidHandle<std::vector<simb::MCTruth> >(fAPALabel);
   art::FindManyP<simb::MCParticle> APAAssn(APATrue,evt,fGEANTLabel);
   FillMyMaps( APAParts, APAAssn, APATrue );
   TotGen_APA = APAParts.size();
@@ -224,7 +225,7 @@ void SolarNuAna::analyze(art::Event const & evt)
   FillMyMaps( Ar42Parts, Ar42Assn, Ar42True );
   //TotGen_Ar42 = Ar42Parts.size();
   std::cout << "--- The size of Ar42Parts is " << Ar42Parts.size() << std::endl;
-*/
+
 
  art::FindManyP<simb::MCParticle> MarlAssn(MarlTrue,evt,fGEANTLabel);
   FillMyMaps( MarlParts, MarlAssn, MarlTrue );
@@ -255,6 +256,8 @@ for(int hit = 0; hit < NTotHits; ++hit) {
 {
     hitPur = ThisPType== 1 ? 1 : 0; // marley
      if(hitPur==0) continue;
+      const std::vector<int> trks = bt_serv->HitToTrackIds(clockData,ThisHit);     // Erro
+      if (trks.size()==0) continue;
       fHitTree->Fill();
 }
 }//Loop over reco_hits
